@@ -1,0 +1,50 @@
+name: masterfabric_app_icon
+description: "A Flutter package for dynamic app icon switching with scheduling, network triggers, and multi-platform support (Android, iOS, iPad, macOS)."
+version: 0.0.1
+homepage: https://github.com/masterfabric/masterfabric_app_icon
+repository: https://github.com/masterfabric/masterfabric_app_icon
+issue_tracker: https://github.com/masterfabric/masterfabric_app_icon/issues
+
+environment:
+  sdk: ^3.0.0
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  args: ^2.4.2
+  yaml: ^3.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+# CLI executable for icon generation
+executables:
+  masterfabric_app_icon: generate
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.masterfabric.app_icon
+        pluginClass: MasterfabricAppIconPlugin
+      ios:
+        pluginClass: MasterfabricAppIconPlugin
+      macos:
+        pluginClass: MasterfabricAppIconPlugin
+
+# Example configuration for masterfabric_app_icon:
+# masterfabric_app_icon:
+#   icons_path: assets/app_icons
+#   icons:
+#     - name: icon1
+#       path: icon1.png
+#       default: true
+#     - name: icon2
+#       path: icon2.png
+#     - name: icon3
+#       path: icon3.png
+#     - name: icon4
+#       path: icon4.png
