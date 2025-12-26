@@ -7,6 +7,8 @@
             android:name=".MainActivity"
             android:exported="true"
             android:enabled="true"
+            android:icon="@mipmap/ic_launcher_icon1"
+            android:roundIcon="@mipmap/ic_launcher_icon1_round"
             android:launchMode="singleTop"
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"
@@ -31,10 +33,14 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-        <!-- MASTERFABRIC_APP_ICON_ALIASES_START -->
+        
+            
+            
+            
+            <!-- MASTERFABRIC_APP_ICON_ALIASES_START -->
         <activity-alias
             android:name=".MainActivityIcon1"
-            android:enabled="false"
+            android:enabled="true"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_icon1"
             android:roundIcon="@mipmap/ic_launcher_icon1_round"
