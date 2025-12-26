@@ -112,17 +112,59 @@ class IosIconGenerator {
 
       // Copy icons for each size (remove duplicates)
       final seenFiles = <String>{};
+      final createdFiles = <String>[];
       for (final size in iosSizes) {
         final filename = '${icon.name}_${size.size.toInt()}x${size.size.toInt()}@${size.scale}x.png';
         if (!seenFiles.contains(filename)) {
           seenFiles.add(filename);
+          final targetSize = (size.size * size.scale).toInt();
           await _resizeAndCopyIcon(
             icon.sourcePath,
             '$iconSetPath/$filename',
-            (size.size * size.scale).toInt(),
+            targetSize,
           );
+          // Verify file was created
+          final createdFile = File('$iconSetPath/$filename');
+          if (createdFile.existsSync()) {
+            createdFiles.add(filename);
+          } else {
+            print('  ❌ ERROR: Failed to create icon file: $filename');
+          }
         }
       }
+      
+      // Verify all required files exist
+      final contentsJsonData = await File('$iconSetPath/Contents.json').readAsString();
+      final requiredFiles = RegExp(r'"filename":\s*"([^"]+)"')
+          .allMatches(contentsJsonData)
+          .map((m) => m.group(1)!)
+          .toSet();
+      
+      final missingFiles = requiredFiles.where((f) => !File('$iconSetPath/$f').existsSync()).toList();
+      if (missingFiles.isNotEmpty) {
+        print('  ⚠️  WARNING: Missing ${missingFiles.length} icon files:');
+        for (final missing in missingFiles) {
+          print('     - $missing');
+        }
+        print('  🔄 Attempting to regenerate missing files...');
+        // Regenerate missing files
+        for (final missingFile in missingFiles) {
+          // Extract size from filename: icon2_20x20@1x.png -> 20x1 = 20
+          final match = RegExp(r'_(\d+)x\d+@(\d+)x\.png').firstMatch(missingFile);
+          if (match != null) {
+            final baseSize = int.parse(match.group(1)!);
+            final scale = int.parse(match.group(2)!);
+            final targetSize = baseSize * scale;
+            await _resizeAndCopyIcon(
+              icon.sourcePath,
+              '$iconSetPath/$missingFile',
+              targetSize,
+            );
+          }
+        }
+      }
+      
+      print('  ✅ Generated ${createdFiles.length} icon files for ${icon.name}');
     }
     
     // Create default AppIcon.appiconset for Xcode compatibility

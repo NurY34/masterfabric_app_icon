@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:image/image.dart' as img;
 
 /// Generator for Android platform icon configuration
 class AndroidIconGenerator {
@@ -15,6 +16,7 @@ class AndroidIconGenerator {
     await _ensureColorResource();
     await _copyIconResources();
     await _updateAndroidManifest();
+    await _updateMainActivityIcon();
   }
 
   /// Copy icon assets to Android res folders
@@ -29,6 +31,9 @@ class AndroidIconGenerator {
       'mipmap-xxhdpi': 144,
       'mipmap-xxxhdpi': 192,
     };
+
+    // Find default icon
+    final defaultIcon = icons.where((icon) => icon.isDefault).firstOrNull;
 
     for (final icon in icons) {
       // Check if source file exists
@@ -68,10 +73,44 @@ class AndroidIconGenerator {
           foregroundDestFile.path,
           entry.value,
         );
+
+        // For default icon, also create ic_launcher.png files (replace Flutter's default)
+        if (icon.isDefault) {
+          // Delete existing ic_launcher.png if it exists
+          final launcherFile = File('${destDir.path}/ic_launcher.png');
+          if (launcherFile.existsSync()) {
+            launcherFile.deleteSync();
+          }
+          
+          // Create ic_launcher.png from default icon
+          await _resizeAndCopyIcon(
+            icon.sourcePath,
+            launcherFile.path,
+            entry.value,
+          );
+
+          // Delete existing ic_launcher_round.png if it exists
+          final launcherRoundFile = File('${destDir.path}/ic_launcher_round.png');
+          if (launcherRoundFile.existsSync()) {
+            launcherRoundFile.deleteSync();
+          }
+          
+          // Create ic_launcher_round.png from default icon
+          await _resizeAndCopyIcon(
+            icon.sourcePath,
+            launcherRoundFile.path,
+            entry.value,
+          );
+        }
       }
 
       // Generate adaptive icon XML if needed (Android 8.0+)
       await _generateAdaptiveIconXml(icon);
+    }
+
+    // Generate adaptive icon XML for ic_launcher (default icon)
+    if (defaultIcon != null) {
+      await _generateDefaultAdaptiveIconXml(defaultIcon);
     }
   }
 
@@ -83,14 +122,87 @@ class AndroidIconGenerator {
   ) async {
     final sourceFile = File(sourcePath);
     if (!sourceFile.existsSync()) {
-      // This should not happen as we check before calling, but handle gracefully
       print('  ⚠️  Source icon not found: $sourcePath');
       return;
     }
 
-    // For now, just copy the file - in production, use image package to resize
-    await sourceFile.copy(destPath);
-    print('  Copied icon to: $destPath');
+    try {
+      // Read the source image
+      final sourceBytes = await sourceFile.readAsBytes();
+      final sourceImage = img.decodeImage(sourceBytes);
+      
+      if (sourceImage == null) {
+        print('  ⚠️  Could not decode image: $sourcePath');
+        // Fallback: just copy the file
+        await sourceFile.copy(destPath);
+        return;
+      }
+
+      // For foreground icons (adaptive icons), we need to create a 108x108dp canvas
+      // with the icon centered in a 72x72dp safe zone
+      final isForeground = destPath.contains('_foreground');
+      
+      if (isForeground) {
+        // Adaptive icon foreground: 108x108dp canvas, icon centered in 72x72dp safe zone
+        // 108dp = size * 2.25 (since size is for 48dp base)
+        final canvasSize = (size * 2.25).round(); // 108dp in pixels
+        final safeZoneSize = (size * 1.5).round(); // 72dp in pixels (72/48 = 1.5)
+        
+        // Resize source image to fit in safe zone while maintaining aspect ratio
+        final sourceWidth = sourceImage.width;
+        final sourceHeight = sourceImage.height;
+        final sourceAspect = sourceWidth / sourceHeight;
+        
+        int targetWidth, targetHeight;
+        if (sourceAspect > 1) {
+          // Wider than tall
+          targetWidth = safeZoneSize;
+          targetHeight = (safeZoneSize / sourceAspect).round();
+        } else {
+          // Taller than wide or square
+          targetHeight = safeZoneSize;
+          targetWidth = (safeZoneSize * sourceAspect).round();
+        }
+        
+        // Resize the icon
+        final resizedIcon = img.copyResize(
+          sourceImage,
+          width: targetWidth,
+          height: targetHeight,
+          interpolation: img.Interpolation.cubic,
+        );
+        
+        // Create a transparent canvas
+        final canvas = img.Image(width: canvasSize, height: canvasSize);
+        
+        // Center the icon on the canvas
+        final offsetX = (canvasSize - targetWidth) ~/ 2;
+        final offsetY = (canvasSize - targetHeight) ~/ 2;
+        
+        img.compositeImage(canvas, resizedIcon, dstX: offsetX, dstY: offsetY);
+        
+        // Save the result
+        final destFile = File(destPath);
+        await destFile.writeAsBytes(img.encodePng(canvas));
+        print('  Created adaptive foreground icon: $destPath (${canvasSize}x${canvasSize})');
+      } else {
+        // Regular icon or round icon: resize to target size
+        final resizedImage = img.copyResize(
+          sourceImage,
+          width: size,
+          height: size,
+          interpolation: img.Interpolation.cubic,
+        );
+        
+        final destFile = File(destPath);
+        await destFile.writeAsBytes(img.encodePng(resizedImage));
+        print('  Resized icon to: $destPath (${size}x${size})');
+      }
+    } catch (e) {
+      print('  ⚠️  Error processing icon: $e');
+      // Fallback: just copy the file
+      await sourceFile.copy(destPath);
+    }
   }
 
   /// Ensure color resource exists for adaptive icons
@@ -144,6 +256,26 @@ class AndroidIconGenerator {
     await xmlFile.writeAsString(xmlContent);
   }
 
+  /// Generate adaptive icon XML for default ic_launcher
+  Future<void> _generateDefaultAdaptiveIconXml(IconDefinition defaultIcon) async {
+    final xmlDir = Directory(
+        '$projectPath/android/app/src/main/res/mipmap-anydpi-v26');
+    if (!xmlDir.existsSync()) {
+      xmlDir.createSync(recursive: true);
+    }
+
+    final xmlContent = '''<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background"/>
+    <foreground android:drawable="@mipmap/${defaultIcon.resourceName}_foreground"/>
+</adaptive-icon>
+''';
+
+    final xmlFile = File('${xmlDir.path}/ic_launcher.xml');
+    await xmlFile.writeAsString(xmlContent);
+    print('  Created adaptive icon XML for ic_launcher');
+  }
+
   /// Update AndroidManifest.xml with activity-alias entries
   Future<void> _updateAndroidManifest() async {
     final manifestPath =
@@ -167,9 +299,34 @@ class AndroidIconGenerator {
       return;
     }
 
-    // Keep MainActivity's LAUNCHER intent-filter
-    // MainActivity will be the default launcher, activity-alias'lar will be used for custom icons
-    // Plugin will disable MainActivity when a custom icon is selected
+    // Remove MainActivity's LAUNCHER intent-filter to prevent duplicate icons
+    // Only activity-alias'lar will have LAUNCHER intent-filter
+    // MainActivity must always be enabled (for Flutter), but won't show as launcher
+    final mainActivityMatch = mainActivityRegex.firstMatch(content);
+    if (mainActivityMatch != null) {
+      final activityStart = mainActivityMatch.start;
+      final activityEnd = content.indexOf('</activity>', activityStart);
+      if (activityEnd != -1) {
+        final activityContent = content.substring(activityStart, activityEnd);
+        if (activityContent.contains('android.intent.category.LAUNCHER') &&
+            !activityContent.contains('MASTERFABRIC_APP_ICON')) {
+          // Remove LAUNCHER intent-filter from MainActivity
+          content = content.replaceRange(
+            activityStart,
+            activityEnd,
+            activityContent.replaceAll(
+              RegExp(
+                r'\s*<intent-filter>\s*<action android:name="android\.intent\.action\.MAIN"/>\s*<category android:name="android\.intent\.category\.LAUNCHER"/>\s*</intent-filter>\s*',
+                multiLine: true,
+                dotAll: true,
+              ),
+              '\n            <!-- LAUNCHER intent-filter removed - only activity-alias\'lar have LAUNCHER -->\n',
+            ),
+          );
+          print('  Removed LAUNCHER intent-filter from MainActivity');
+        }
+      }
+    }
 
     // Check if aliases already exist
     if (content.contains('<!-- MASTERFABRIC_APP_ICON_ALIASES_START -->')) {
@@ -199,12 +356,13 @@ class AndroidIconGenerator {
     aliasesBuffer.writeln('        <!-- MASTERFABRIC_APP_ICON_ALIASES_START -->');
 
     for (final icon in validIcons) {
-      // All aliases are disabled by default - MainActivity is the default launcher
-      // Plugin will disable MainActivity and enable selected alias when icon is changed
+      // Default icon's alias is enabled, others are disabled
+      // MainActivity doesn't have LAUNCHER intent-filter, so Flutter launches via enabled alias
+      final isEnabled = icon.isDefault;
       aliasesBuffer.writeln('''
         <activity-alias
             android:name=".${icon.aliasName}"
-            android:enabled="false"
+            android:enabled="$isEnabled"
             android:exported="true"
             android:icon="@mipmap/${icon.resourceName}"
             android:roundIcon="@mipmap/${icon.resourceName}_round"
@@ -226,6 +384,79 @@ class AndroidIconGenerator {
 
     await manifestFile.writeAsString(content);
     print('Updated AndroidManifest.xml with ${validIcons.length} icon aliases');
+  }
+
+  /// Update MainActivity to use default icon's adaptive icon
+  Future<void> _updateMainActivityIcon() async {
+    // Find default icon
+    final defaultIcon = icons.where((icon) => icon.isDefault).firstOrNull;
+    if (defaultIcon == null) {
+      print('  ⚠️  No default icon found, skipping MainActivity icon update');
+      return;
+    }
+
+    final manifestPath =
+        '$projectPath/android/app/src/main/AndroidManifest.xml';
+    final manifestFile = File(manifestPath);
+
+    if (!manifestFile.existsSync()) {
+      return;
+    }
+
+    var content = await manifestFile.readAsString();
+
+    // Update MainActivity's icon to use default icon
+    final mainActivityRegex = RegExp(
+      r'<activity\s+android:name="\.MainActivity"[^>]*>',
+      multiLine: true,
+    );
+
+    final match = mainActivityRegex.firstMatch(content);
+    if (match == null) {
+      return;
+    }
+
+    final activityStart = match.start;
+    final activityEnd = content.indexOf('</activity>', activityStart);
+    if (activityEnd == -1) {
+      return;
+    }
+
+    final activityContent = content.substring(activityStart, activityEnd);
+    
+    // Replace icon and roundIcon attributes
+    final updatedActivity = activityContent
+        .replaceAll(
+          RegExp(r'android:icon="[^"]*"'),
+          'android:icon="@mipmap/${defaultIcon.resourceName}"',
+        )
+        .replaceAll(
+          RegExp(r'android:roundIcon="[^"]*"'),
+          'android:roundIcon="@mipmap/${defaultIcon.resourceName}_round"',
+        );
+
+    // If icon attributes don't exist, add them
+    if (!updatedActivity.contains('android:icon=')) {
+      final insertPos = updatedActivity.indexOf('android:exported=');
+      if (insertPos != -1) {
+        final beforeExport = updatedActivity.substring(0, insertPos);
+        final afterExport = updatedActivity.substring(insertPos);
+        content = content.replaceRange(
+          activityStart,
+          activityEnd,
+          '$beforeExport            android:icon="@mipmap/${defaultIcon.resourceName}"\n            android:roundIcon="@mipmap/${defaultIcon.resourceName}_round"\n            $afterExport',
+        );
+      }
+    } else {
+      content = content.replaceRange(
+        activityStart,
+        activityEnd,
+        updatedActivity,
+      );
+    }
+
+    await manifestFile.writeAsString(content);
+    print('  Updated MainActivity to use default icon: ${defaultIcon.resourceName}');
   }
 }
 
