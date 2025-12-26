@@ -57,9 +57,12 @@ class IosIconGenerator {
       final iconSetPath = '$assetsPath/${icon.assetCatalogName}.appiconset';
       final iconSetDir = Directory(iconSetPath);
 
-      if (!iconSetDir.existsSync()) {
-        iconSetDir.createSync(recursive: true);
+      // Remove existing icon set to ensure clean generation
+      if (iconSetDir.existsSync()) {
+        iconSetDir.deleteSync(recursive: true);
+        print('  🗑️  Removed existing icon set: ${icon.assetCatalogName}');
       }
+      iconSetDir.createSync(recursive: true);
 
       // iOS icon sizes with correct idiom
       // All required sizes: 29, 40, 48, 55, 57, 58, 60, 66, 80, 87, 88, 92, 100, 114, 120, 172, 180, 196, 216, 1024
@@ -107,13 +110,18 @@ class IosIconGenerator {
       final contentsJson = _generateContentsJson(icon, iosSizes);
       await File('$iconSetPath/Contents.json').writeAsString(contentsJson);
 
-      // Copy icons for each size
+      // Copy icons for each size (remove duplicates)
+      final seenFiles = <String>{};
       for (final size in iosSizes) {
-        await _resizeAndCopyIcon(
-          icon.sourcePath,
-          '$iconSetPath/${icon.name}_${size.size.toInt()}x${size.size.toInt()}@${size.scale}x.png',
-          (size.size * size.scale).toInt(),
-        );
+        final filename = '${icon.name}_${size.size.toInt()}x${size.size.toInt()}@${size.scale}x.png';
+        if (!seenFiles.contains(filename)) {
+          seenFiles.add(filename);
+          await _resizeAndCopyIcon(
+            icon.sourcePath,
+            '$iconSetPath/$filename',
+            (size.size * size.scale).toInt(),
+          );
+        }
       }
     }
     
@@ -196,7 +204,19 @@ class IosIconGenerator {
   /// Generate Contents.json for icon set
   String _generateContentsJson(
       IosIconDefinition icon, List<_IosIconSize> sizes) {
-    final images = sizes.map((size) {
+    // Remove duplicates based on filename
+    final seenFiles = <String>{};
+    final uniqueSizes = <_IosIconSize>[];
+    
+    for (final size in sizes) {
+      final filename = '${icon.name}_${size.size.toInt()}x${size.size.toInt()}@${size.scale}x.png';
+      if (!seenFiles.contains(filename)) {
+        seenFiles.add(filename);
+        uniqueSizes.add(size);
+      }
+    }
+    
+    final images = uniqueSizes.map((size) {
       return '''    {
       "filename": "${icon.name}_${size.size.toInt()}x${size.size.toInt()}@${size.scale}x.png",
       "idiom": "${size.idiom}",
@@ -265,42 +285,31 @@ $images
         return;
       }
 
-      // iOS icons MUST NOT have alpha channel (transparency)
-      // Remove alpha channel by compositing onto white background
-      img.Image processedImage = sourceImage;
-      
-      // If image has alpha channel, composite onto white background
-      if (sourceImage.hasAlpha) {
-        // Create white background
-        final whiteBg = img.Image(
-          width: sourceImage.width,
-          height: sourceImage.height,
-        );
-        // Fill with white (255, 255, 255)
-        img.fill(whiteBg, color: img.ColorRgb8(255, 255, 255));
-        
-        // Composite source image onto white background
-        processedImage = img.compositeImage(whiteBg, sourceImage);
-      }
-
-      // Resize image to target size with high quality interpolation
+      // Resize image to target size first (before alpha removal for better quality)
       final resizedImage = img.copyResize(
-        processedImage,
+        sourceImage,
         width: size,
         height: size,
         interpolation: img.Interpolation.cubic,
         maintainAspect: false, // Force exact size
       );
 
-      // Ensure final image has no alpha channel (iOS requirement)
+      // iOS icons MUST NOT have alpha channel (transparency)
+      // Remove alpha channel by compositing onto white background
       img.Image finalImage = resizedImage;
+      
+      // If image has alpha channel, composite onto white background
       if (resizedImage.hasAlpha) {
-        // Create white background and composite
+        // Create white background
         final whiteBg = img.Image(
           width: resizedImage.width,
           height: resizedImage.height,
         );
+        // Fill with white (255, 255, 255)
         img.fill(whiteBg, color: img.ColorRgb8(255, 255, 255));
+        
+        // Composite source image onto white background
+        // compositeImage(dst, src) - destination first, source second
         finalImage = img.compositeImage(whiteBg, resizedImage);
       }
 

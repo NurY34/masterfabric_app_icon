@@ -167,6 +167,10 @@ class AndroidIconGenerator {
       return;
     }
 
+    // Keep MainActivity's LAUNCHER intent-filter
+    // MainActivity will be the default launcher, activity-alias'lar will be used for custom icons
+    // Plugin will disable MainActivity when a custom icon is selected
+
     // Check if aliases already exist
     if (content.contains('<!-- MASTERFABRIC_APP_ICON_ALIASES_START -->')) {
       // Remove existing aliases
@@ -195,11 +199,12 @@ class AndroidIconGenerator {
     aliasesBuffer.writeln('        <!-- MASTERFABRIC_APP_ICON_ALIASES_START -->');
 
     for (final icon in validIcons) {
-      final isDefault = icon.isDefault;
+      // All aliases are disabled by default - MainActivity is the default launcher
+      // Plugin will disable MainActivity and enable selected alias when icon is changed
       aliasesBuffer.writeln('''
         <activity-alias
             android:name=".${icon.aliasName}"
-            android:enabled="${isDefault}"
+            android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/${icon.resourceName}"
             android:roundIcon="@mipmap/${icon.resourceName}_round"
