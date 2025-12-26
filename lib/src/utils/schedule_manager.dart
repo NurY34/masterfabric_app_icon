@@ -18,9 +18,6 @@ class IconScheduleManager {
 
     _isInitialized = true;
 
-    // Check on initialization
-    await checkAndUpdateIcon();
-
     // Set up periodic checks
     if (settings.checkIntervalMinutes > 0) {
       _periodicTimer = Timer.periodic(
@@ -32,6 +29,15 @@ class IconScheduleManager {
     // Set up foreground listener
     if (settings.checkOnForeground) {
       WidgetsBinding.instance.addObserver(_AppLifecycleObserver(this));
+    }
+
+    // Check on initialization - but don't block if checkOnSplash is false
+    // If checkOnSplash is true, still run it but make network calls non-blocking
+    if (settings.checkOnSplash) {
+      // Run check in background to avoid blocking app startup
+      checkAndUpdateIcon().catchError((e) {
+        debugPrint('Icon check during initialization failed: $e');
+      });
     }
   }
 
@@ -83,10 +89,15 @@ class IconScheduleManager {
     final defaultIcon = settings.icons.where((i) => i.isDefault).firstOrNull;
     if (defaultIcon != null) {
       final currentIcon = await AppIconMethodChannel.getCurrentIcon();
-      // For default icon, use resetToDefault() instead of setIcon()
-      // Default icon name is not in alternate icons list, so we must use resetToDefault
+      // Check if we need to switch to default icon
       if (currentIcon != defaultIcon.iconName && currentIcon != 'default') {
-        await AppIconMethodChannel.resetToDefault();
+        // If default icon is in available icons (e.g., icon1), use setIcon
+        // Otherwise use resetToDefault() for main activity icon
+        if (availableIcons.contains(defaultIcon.iconName)) {
+          await AppIconMethodChannel.setIcon(defaultIcon.iconName);
+        } else {
+          await AppIconMethodChannel.resetToDefault();
+        }
       }
     }
   }
@@ -96,12 +107,18 @@ class IconScheduleManager {
     if (icon.schedule?.triggerUrl == null) return false;
 
     try {
-      // Use platform channel to make network request
+      // Use platform channel to make network request with timeout
       final result = await const MethodChannel('com.masterfabric/app_icon')
           .invokeMethod<bool>('checkNetworkTrigger', {
         'url': icon.schedule!.triggerUrl,
         'iconName': icon.iconName,
-      });
+      }).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          debugPrint('Network trigger check timed out');
+          return false;
+        },
+      );
       return result ?? false;
     } catch (e) {
       debugPrint('Network trigger check failed: $e');

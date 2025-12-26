@@ -12,6 +12,7 @@ class AndroidIconGenerator {
 
   /// Generate Android resources and update AndroidManifest.xml
   Future<void> generate() async {
+    await _ensureColorResource();
     await _copyIconResources();
     await _updateAndroidManifest();
   }
@@ -51,6 +52,22 @@ class AndroidIconGenerator {
           destFile.path,
           entry.value,
         );
+
+        // Also create round icon version (same icon, different name)
+        final roundDestFile = File('${destDir.path}/${icon.resourceName}_round.png');
+        await _resizeAndCopyIcon(
+          icon.sourcePath,
+          roundDestFile.path,
+          entry.value,
+        );
+
+        // Create foreground drawable for adaptive icon
+        final foregroundDestFile = File('${destDir.path}/${icon.resourceName}_foreground.png');
+        await _resizeAndCopyIcon(
+          icon.sourcePath,
+          foregroundDestFile.path,
+          entry.value,
+        );
       }
 
       // Generate adaptive icon XML if needed (Android 8.0+)
@@ -74,6 +91,38 @@ class AndroidIconGenerator {
     // For now, just copy the file - in production, use image package to resize
     await sourceFile.copy(destPath);
     print('  Copied icon to: $destPath');
+  }
+
+  /// Ensure color resource exists for adaptive icons
+  Future<void> _ensureColorResource() async {
+    final valuesDir = Directory('$projectPath/android/app/src/main/res/values');
+    if (!valuesDir.existsSync()) {
+      valuesDir.createSync(recursive: true);
+    }
+
+    final colorsFile = File('${valuesDir.path}/colors.xml');
+    if (!colorsFile.existsSync()) {
+      // Create colors.xml with launcher background color
+      final colorsContent = '''<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#FFFFFF</color>
+</resources>
+''';
+      await colorsFile.writeAsString(colorsContent);
+      print('  Created colors.xml with ic_launcher_background');
+    } else {
+      // Check if ic_launcher_background exists, if not add it
+      var content = await colorsFile.readAsString();
+      if (!content.contains('ic_launcher_background')) {
+        // Add the color before </resources>
+        content = content.replaceFirst(
+          '</resources>',
+          '    <color name="ic_launcher_background">#FFFFFF</color>\n</resources>',
+        );
+        await colorsFile.writeAsString(content);
+        print('  Added ic_launcher_background to colors.xml');
+      }
+    }
   }
 
   /// Generate adaptive icon XML for Android 8.0+

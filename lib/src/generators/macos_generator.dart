@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:image/image.dart' as img;
 
 /// Generator for macOS platform icon configuration
 class MacosIconGenerator {
@@ -130,8 +132,39 @@ $images
       return;
     }
 
-    await sourceFile.copy(destPath);
-    print('  Copied icon to: $destPath');
+    try {
+      // Read source image
+      final sourceBytes = await sourceFile.readAsBytes();
+      final sourceImage = img.decodeImage(sourceBytes);
+      
+      if (sourceImage == null) {
+        print('  ⚠️  Failed to decode image: $sourcePath');
+        // Fallback to copy if decode fails
+        await sourceFile.copy(destPath);
+        return;
+      }
+
+      // Resize image to target size
+      final resizedImage = img.copyResize(
+        sourceImage,
+        width: size,
+        height: size,
+        interpolation: img.Interpolation.cubic,
+      );
+
+      // Encode as PNG
+      final resizedBytes = Uint8List.fromList(img.encodePng(resizedImage));
+      
+      // Write to destination
+      final destFile = File(destPath);
+      await destFile.writeAsBytes(resizedBytes);
+      
+      print('  ✅ Resized and saved icon: $destPath (${size}x$size)');
+    } catch (e) {
+      print('  ⚠️  Error resizing icon: $e, falling back to copy');
+      // Fallback to copy if resize fails
+      await sourceFile.copy(destPath);
+    }
   }
 
   /// Update Info.plist for macOS

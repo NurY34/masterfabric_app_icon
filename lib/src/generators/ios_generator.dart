@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:image/image.dart' as img;
 
 /// Generator for iOS platform icon configuration
 class IosIconGenerator {
@@ -60,22 +62,45 @@ class IosIconGenerator {
       }
 
       // iOS icon sizes with correct idiom
+      // All required sizes: 29, 40, 48, 55, 57, 58, 60, 66, 80, 87, 88, 92, 100, 114, 120, 172, 180, 196, 216, 1024
       final iosSizes = [
-        _IosIconSize(20, 1, 'iphone'),
-        _IosIconSize(20, 2, 'iphone'),
-        _IosIconSize(20, 3, 'iphone'),
-        _IosIconSize(29, 1, 'iphone'),
-        _IosIconSize(29, 2, 'iphone'),
-        _IosIconSize(29, 3, 'iphone'),
-        _IosIconSize(40, 1, 'iphone'),
-        _IosIconSize(40, 2, 'iphone'),
-        _IosIconSize(40, 3, 'iphone'),
-        _IosIconSize(60, 2, 'iphone'),
-        _IosIconSize(60, 3, 'iphone'),
+        // Standard iOS sizes
+        _IosIconSize(20, 1, 'iphone'), // 20
+        _IosIconSize(20, 2, 'iphone'), // 40
+        _IosIconSize(20, 3, 'iphone'), // 60
+        _IosIconSize(29, 1, 'iphone'), // 29
+        _IosIconSize(29, 2, 'iphone'), // 58
+        _IosIconSize(29, 3, 'iphone'), // 87
+        _IosIconSize(40, 1, 'iphone'), // 40
+        _IosIconSize(40, 2, 'iphone'), // 80
+        _IosIconSize(40, 3, 'iphone'), // 120
+        _IosIconSize(60, 2, 'iphone'), // 120
+        _IosIconSize(60, 3, 'iphone'), // 180
+        // Additional custom sizes
+        _IosIconSize(24, 2, 'iphone'), // 48
+        _IosIconSize(27.5, 2, 'iphone'), // 55
+        _IosIconSize(28.5, 2, 'iphone'), // 57
+        _IosIconSize(30, 2, 'iphone'), // 60
+        _IosIconSize(33, 2, 'iphone'), // 66
+        _IosIconSize(44, 2, 'iphone'), // 88
+        _IosIconSize(46, 2, 'iphone'), // 92
+        _IosIconSize(50, 2, 'iphone'), // 100
+        _IosIconSize(57, 2, 'iphone'), // 114
+        _IosIconSize(86, 2, 'iphone'), // 172
+        _IosIconSize(98, 2, 'iphone'), // 196
+        _IosIconSize(108, 2, 'iphone'), // 216
+        // iPad sizes
+        _IosIconSize(20, 1, 'ipad'),
+        _IosIconSize(20, 2, 'ipad'),
+        _IosIconSize(29, 1, 'ipad'),
+        _IosIconSize(29, 2, 'ipad'),
+        _IosIconSize(40, 1, 'ipad'),
+        _IosIconSize(40, 2, 'ipad'),
         _IosIconSize(76, 1, 'ipad'),
         _IosIconSize(76, 2, 'ipad'),
         _IosIconSize(83.5, 2, 'ipad'),
-        _IosIconSize(1024, 1, 'ios-marketing'),
+        // App Store
+        _IosIconSize(1024, 1, 'ios-marketing'), // 1024
       ];
 
       // Generate Contents.json
@@ -112,20 +137,36 @@ class IosIconGenerator {
       
       // Generate Contents.json with correct idioms for AppIcon
       final appIconSizes = [
+        // iPhone - Notification (20pt)
         _IosIconSize(20, 1, 'iphone'),
         _IosIconSize(20, 2, 'iphone'),
         _IosIconSize(20, 3, 'iphone'),
+        // iPhone - Settings (29pt)
         _IosIconSize(29, 1, 'iphone'),
         _IosIconSize(29, 2, 'iphone'),
         _IosIconSize(29, 3, 'iphone'),
+        // iPhone - Spotlight (40pt)
         _IosIconSize(40, 1, 'iphone'),
         _IosIconSize(40, 2, 'iphone'),
         _IosIconSize(40, 3, 'iphone'),
+        // iPhone - App (60pt)
         _IosIconSize(60, 2, 'iphone'),
         _IosIconSize(60, 3, 'iphone'),
+        // iPad - Notification (20pt)
+        _IosIconSize(20, 1, 'ipad'),
+        _IosIconSize(20, 2, 'ipad'),
+        // iPad - Settings (29pt)
+        _IosIconSize(29, 1, 'ipad'),
+        _IosIconSize(29, 2, 'ipad'),
+        // iPad - Spotlight (40pt)
+        _IosIconSize(40, 1, 'ipad'),
+        _IosIconSize(40, 2, 'ipad'),
+        // iPad - App (76pt)
         _IosIconSize(76, 1, 'ipad'),
         _IosIconSize(76, 2, 'ipad'),
+        // iPad Pro - App (83.5pt)
         _IosIconSize(83.5, 2, 'ipad'),
+        // App Store (1024pt)
         _IosIconSize(1024, 1, 'ios-marketing'),
       ];
       
@@ -212,8 +253,72 @@ $images
       return;
     }
 
-    await sourceFile.copy(destPath);
-    print('  Copied icon to: $destPath');
+    try {
+      // Read source image
+      final sourceBytes = await sourceFile.readAsBytes();
+      final sourceImage = img.decodeImage(sourceBytes);
+      
+      if (sourceImage == null) {
+        print('  ⚠️  Failed to decode image: $sourcePath');
+        // Fallback to copy if decode fails
+        await sourceFile.copy(destPath);
+        return;
+      }
+
+      // iOS icons MUST NOT have alpha channel (transparency)
+      // Remove alpha channel by compositing onto white background
+      img.Image processedImage = sourceImage;
+      
+      // If image has alpha channel, composite onto white background
+      if (sourceImage.hasAlpha) {
+        // Create white background
+        final whiteBg = img.Image(
+          width: sourceImage.width,
+          height: sourceImage.height,
+        );
+        // Fill with white (255, 255, 255)
+        img.fill(whiteBg, color: img.ColorRgb8(255, 255, 255));
+        
+        // Composite source image onto white background
+        processedImage = img.compositeImage(whiteBg, sourceImage);
+      }
+
+      // Resize image to target size with high quality interpolation
+      final resizedImage = img.copyResize(
+        processedImage,
+        width: size,
+        height: size,
+        interpolation: img.Interpolation.cubic,
+        maintainAspect: false, // Force exact size
+      );
+
+      // Ensure final image has no alpha channel (iOS requirement)
+      img.Image finalImage = resizedImage;
+      if (resizedImage.hasAlpha) {
+        // Create white background and composite
+        final whiteBg = img.Image(
+          width: resizedImage.width,
+          height: resizedImage.height,
+        );
+        img.fill(whiteBg, color: img.ColorRgb8(255, 255, 255));
+        finalImage = img.compositeImage(whiteBg, resizedImage);
+      }
+
+      // Encode as PNG with maximum compression quality
+      final resizedBytes = Uint8List.fromList(
+        img.encodePng(finalImage, level: 6), // Level 6 = good balance
+      );
+      
+      // Write to destination
+      final destFile = File(destPath);
+      await destFile.writeAsBytes(resizedBytes);
+      
+      print('  ✅ Resized and saved icon: $destPath (${size}x$size, format: ${finalImage.format})');
+    } catch (e) {
+      print('  ⚠️  Error resizing icon: $e, falling back to copy');
+      // Fallback to copy if resize fails
+      await sourceFile.copy(destPath);
+    }
   }
 
   /// Update Info.plist with alternate icon entries
