@@ -28,6 +28,93 @@ class MasterfabricAppIconPlugin : FlutterPlugin, MethodCallHandler, ActivityAwar
         channel.setMethodCallHandler(this)
         context = flutterPluginBinding.applicationContext
     }
+    
+    private fun ensureSingleLauncher() {
+        val ctx = context ?: return
+        val packageManager = ctx.packageManager
+        val packageName = ctx.packageName
+        val mainActivityComponent = ComponentName(packageName, "$packageName.MainActivity")
+        
+        try {
+            val aliases = getActivityAliases()
+            Log.d("MasterfabricAppIcon", "ensureSingleLauncher: Checking MainActivity and ${aliases.size} aliases")
+            
+            // Check MainActivity state
+            val mainActivityState = packageManager.getComponentEnabledSetting(mainActivityComponent)
+            val isMainActivityEnabled = mainActivityState == PackageManager.COMPONENT_ENABLED_STATE_ENABLED ||
+                                        mainActivityState == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+            Log.d("MasterfabricAppIcon", "ensureSingleLauncher: MainActivity state: $mainActivityState, enabled: $isMainActivityEnabled")
+            
+            // Check which aliases are enabled
+            val enabledAliases = mutableListOf<String>()
+            for (alias in aliases) {
+                val aliasComponent = ComponentName(packageName, "$packageName.$alias")
+                val aliasState = packageManager.getComponentEnabledSetting(aliasComponent)
+                Log.d("MasterfabricAppIcon", "ensureSingleLauncher: Alias $alias state: $aliasState")
+                if (aliasState == PackageManager.COMPONENT_ENABLED_STATE_ENABLED) {
+                    enabledAliases.add(alias)
+                }
+            }
+            
+            Log.d("MasterfabricAppIcon", "ensureSingleLauncher: Found ${enabledAliases.size} enabled aliases: $enabledAliases")
+            
+            // If both MainActivity and some aliases are enabled, disable the aliases
+            if (isMainActivityEnabled && enabledAliases.isNotEmpty()) {
+                Log.w("MasterfabricAppIcon", "Both MainActivity and aliases enabled! Disabling all aliases.")
+                for (alias in enabledAliases) {
+                    val componentToDisable = ComponentName(packageName, "$packageName.$alias")
+                    try {
+                        packageManager.setComponentEnabledSetting(
+                            componentToDisable,
+                            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                            PackageManager.DONT_KILL_APP
+                        )
+                        Log.d("MasterfabricAppIcon", "Disabled alias: $alias")
+                    } catch (e: Exception) {
+                        Log.w("MasterfabricAppIcon", "Error disabling alias $alias: ${e.message}")
+                    }
+                }
+                return
+            }
+            
+            // If MainActivity is disabled but multiple aliases are enabled, keep only first one
+            if (!isMainActivityEnabled && enabledAliases.size > 1) {
+                Log.w("MasterfabricAppIcon", "Multiple aliases enabled! Disabling all except the first one.")
+                for (i in 1 until enabledAliases.size) {
+                    val aliasToDisable = enabledAliases[i]
+                    val componentToDisable = ComponentName(packageName, "$packageName.$aliasToDisable")
+                    try {
+                        packageManager.setComponentEnabledSetting(
+                            componentToDisable,
+                            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                            PackageManager.DONT_KILL_APP
+                        )
+                        Log.d("MasterfabricAppIcon", "Disabled duplicate alias: $aliasToDisable")
+                    } catch (e: Exception) {
+                        Log.w("MasterfabricAppIcon", "Error disabling alias $aliasToDisable: ${e.message}")
+                    }
+                }
+                return
+            }
+            
+            // If nothing is enabled (shouldn't happen normally), enable MainActivity
+            if (!isMainActivityEnabled && enabledAliases.isEmpty()) {
+                Log.w("MasterfabricAppIcon", "Nothing enabled! Enabling MainActivity.")
+                try {
+                    packageManager.setComponentEnabledSetting(
+                        mainActivityComponent,
+                        PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                        PackageManager.DONT_KILL_APP
+                    )
+                    Log.d("MasterfabricAppIcon", "Enabled MainActivity as fallback")
+                } catch (e: Exception) {
+                    Log.w("MasterfabricAppIcon", "Error enabling MainActivity: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("MasterfabricAppIcon", "Error ensuring single launcher: ${e.message}", e)
+        }
+    }
 
     override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
@@ -64,35 +151,21 @@ class MasterfabricAppIconPlugin : FlutterPlugin, MethodCallHandler, ActivityAwar
 
         val packageManager = ctx.packageManager
         val packageName = ctx.packageName
-
-        // First check if main activity is enabled (default icon)
         val mainActivityComponent = ComponentName(packageName, "$packageName.MainActivity")
-        val mainState = packageManager.getComponentEnabledSetting(mainActivityComponent)
-        Log.d("MasterfabricAppIcon", "getCurrentIcon: MainActivity state: $mainState")
+
+        // First check if MainActivity is enabled (default state)
+        val mainActivityState = packageManager.getComponentEnabledSetting(mainActivityComponent)
+        Log.d("MasterfabricAppIcon", "getCurrentIcon: MainActivity state: $mainActivityState")
         
-        if (mainState == PackageManager.COMPONENT_ENABLED_STATE_ENABLED ||
-            mainState == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT) {
-            // Main activity is enabled, check if icon1 alias exists and is also enabled
-            // If icon1 is the default, it might be enabled too
-            val aliases = getActivityAliases()
-            val icon1Alias = aliases.find { it == "MainActivityIcon1" }
-            if (icon1Alias != null) {
-                val icon1Component = ComponentName(packageName, "$packageName.$icon1Alias")
-                val icon1State = packageManager.getComponentEnabledSetting(icon1Component)
-                if (icon1State == PackageManager.COMPONENT_ENABLED_STATE_ENABLED ||
-                    icon1State == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT) {
-                    Log.d("MasterfabricAppIcon", "getCurrentIcon: icon1 alias is enabled")
-                    result.success("icon1")
-                    return
-                }
-            }
-            // Main activity enabled but no icon1 alias, return default
+        if (mainActivityState == PackageManager.COMPONENT_ENABLED_STATE_ENABLED ||
+            mainActivityState == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT) {
+            // MainActivity is enabled, this is the default icon
             Log.d("MasterfabricAppIcon", "getCurrentIcon: MainActivity enabled, returning 'default'")
             result.success("default")
             return
         }
 
-        // Get all activity aliases and check which one is enabled
+        // MainActivity is disabled, check which activity-alias is enabled
         val aliases = getActivityAliases()
         Log.d("MasterfabricAppIcon", "getCurrentIcon: Checking ${aliases.size} aliases")
         
@@ -101,8 +174,7 @@ class MasterfabricAppIconPlugin : FlutterPlugin, MethodCallHandler, ActivityAwar
             val state = packageManager.getComponentEnabledSetting(componentName)
             Log.d("MasterfabricAppIcon", "getCurrentIcon: Alias '$alias' state: $state")
             
-            if (state == PackageManager.COMPONENT_ENABLED_STATE_ENABLED ||
-                state == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT) {
+            if (state == PackageManager.COMPONENT_ENABLED_STATE_ENABLED) {
                 // Extract icon name from alias (e.g., "MainActivityIcon1" -> "icon1")
                 val iconName = alias.replace("MainActivity", "").lowercase()
                 Log.d("MasterfabricAppIcon", "getCurrentIcon: Found enabled icon: $iconName")
@@ -111,15 +183,9 @@ class MasterfabricAppIconPlugin : FlutterPlugin, MethodCallHandler, ActivityAwar
             }
         }
 
-        // No alias or main activity enabled - return icon1 as fallback if available
-        if (aliases.isNotEmpty()) {
-            val defaultIconName = aliases[0].replace("MainActivity", "").lowercase()
-            Log.d("MasterfabricAppIcon", "getCurrentIcon: No enabled component, returning first alias: $defaultIconName")
-            result.success(defaultIconName)
-        } else {
-            Log.w("MasterfabricAppIcon", "getCurrentIcon: No aliases found, returning 'default'")
-            result.success("default")
-        }
+        // No alias enabled - return default
+        Log.d("MasterfabricAppIcon", "getCurrentIcon: No enabled alias, returning 'default'")
+        result.success("default")
     }
 
     private fun setIcon(iconName: String, result: Result) {
@@ -132,11 +198,12 @@ class MasterfabricAppIconPlugin : FlutterPlugin, MethodCallHandler, ActivityAwar
             val packageManager = ctx.packageManager
             val packageName = ctx.packageName
             val aliases = getActivityAliases()
+            val mainActivityComponent = ComponentName(packageName, "$packageName.MainActivity")
 
             Log.d("MasterfabricAppIcon", "Setting icon to: $iconName")
             Log.d("MasterfabricAppIcon", "Found ${aliases.size} activity aliases: $aliases")
 
-            // Handle "default" icon name - enable main activity and disable all aliases
+            // Handle "default" icon name - enable MainActivity and disable all aliases
             if (iconName == "default") {
                 // Disable all aliases
                 for (alias in aliases) {
@@ -151,34 +218,33 @@ class MasterfabricAppIconPlugin : FlutterPlugin, MethodCallHandler, ActivityAwar
                         // Ignore errors
                     }
                 }
-
-                // Enable main activity
-                val mainActivityComponent = ComponentName(packageName, "$packageName.MainActivity")
+                
+                // Enable MainActivity (default launcher)
                 packageManager.setComponentEnabledSetting(
                     mainActivityComponent,
                     PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
                     PackageManager.DONT_KILL_APP
                 )
+                Log.d("MasterfabricAppIcon", "Set default icon - enabled MainActivity")
 
                 channel.invokeMethod("onIconChanged", "default")
                 result.success(true)
                 return
             }
 
-            // Disable main activity's launcher (if using activity-alias, we want only alias to be launcher)
-            val mainActivityComponent = ComponentName(packageName, "$packageName.MainActivity")
+            // Disable MainActivity launcher first
             try {
                 packageManager.setComponentEnabledSetting(
                     mainActivityComponent,
                     PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                     PackageManager.DONT_KILL_APP
                 )
-                Log.d("MasterfabricAppIcon", "Disabled main activity launcher")
+                Log.d("MasterfabricAppIcon", "Disabled MainActivity launcher")
             } catch (e: Exception) {
-                Log.w("MasterfabricAppIcon", "Error disabling main activity: ${e.message}")
+                Log.w("MasterfabricAppIcon", "Error disabling MainActivity: ${e.message}")
             }
 
-            // Disable all aliases first
+            // Disable all aliases
             for (alias in aliases) {
                 val componentName = ComponentName(packageName, "$packageName.$alias")
                 try {
@@ -191,13 +257,10 @@ class MasterfabricAppIconPlugin : FlutterPlugin, MethodCallHandler, ActivityAwar
                     )
                 } catch (e: Exception) {
                     Log.w("MasterfabricAppIcon", "Error disabling alias $alias: ${e.message}")
-                    // Ignore errors for non-existent components
                 }
             }
 
             // Enable the selected alias
-            // Convert "icon1" -> "MainActivityIcon1"
-            // Capitalize first letter: "icon1" -> "Icon1"
             val capitalizedIconName = iconName.replaceFirstChar { 
                 if (it.isLowerCase()) it.uppercaseChar() else it 
             }
@@ -213,18 +276,27 @@ class MasterfabricAppIconPlugin : FlutterPlugin, MethodCallHandler, ActivityAwar
                     PackageManager.DONT_KILL_APP
                 )
                 
-                // Verify the change
                 val newState = packageManager.getComponentEnabledSetting(targetComponent)
                 Log.d("MasterfabricAppIcon", "Icon set successfully. New state: $newState")
                 
-                // Notify Flutter about the change
                 channel.invokeMethod("onIconChanged", iconName)
-                
                 result.success(true)
             } catch (e: PackageManager.NameNotFoundException) {
+                // Re-enable MainActivity if alias not found
+                packageManager.setComponentEnabledSetting(
+                    mainActivityComponent,
+                    PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                    PackageManager.DONT_KILL_APP
+                )
                 Log.e("MasterfabricAppIcon", "Icon alias '$targetAlias' not found in AndroidManifest.xml")
-                result.error("ICON_NOT_FOUND", "Icon alias '$targetAlias' not found in AndroidManifest.xml. Available aliases: $aliases", null)
+                result.error("ICON_NOT_FOUND", "Icon alias '$targetAlias' not found. Available: $aliases", null)
             } catch (e: Exception) {
+                // Re-enable MainActivity on error
+                packageManager.setComponentEnabledSetting(
+                    mainActivityComponent,
+                    PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                    PackageManager.DONT_KILL_APP
+                )
                 Log.e("MasterfabricAppIcon", "Failed to set icon: ${e.message}", e)
                 result.error("SET_ICON_ERROR", "Failed to set icon: ${e.message}", null)
             }
@@ -244,6 +316,7 @@ class MasterfabricAppIconPlugin : FlutterPlugin, MethodCallHandler, ActivityAwar
             val packageManager = ctx.packageManager
             val packageName = ctx.packageName
             val aliases = getActivityAliases()
+            val mainActivityComponent = ComponentName(packageName, "$packageName.MainActivity")
 
             // Disable all aliases
             for (alias in aliases) {
@@ -258,14 +331,14 @@ class MasterfabricAppIconPlugin : FlutterPlugin, MethodCallHandler, ActivityAwar
                     // Ignore errors
                 }
             }
-
-            // Enable main activity (default icon)
-            val mainActivityComponent = ComponentName(packageName, "$packageName.MainActivity")
+            
+            // Enable MainActivity (default launcher)
             packageManager.setComponentEnabledSetting(
                 mainActivityComponent,
                 PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
                 PackageManager.DONT_KILL_APP
             )
+            Log.d("MasterfabricAppIcon", "Reset to default - enabled MainActivity")
 
             channel.invokeMethod("onIconChanged", "default")
             result.success(true)
@@ -407,6 +480,15 @@ class MasterfabricAppIconPlugin : FlutterPlugin, MethodCallHandler, ActivityAwar
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activity = binding.activity
+        
+        // MainActivity is enabled and has LAUNCHER intent-filter (for Flutter to launch)
+        // But we need to ensure only activity-alias'lar are visible as launchers
+        // We can't disable MainActivity because activity-alias'lar target it
+        // Instead, we ensure only one activity-alias is enabled at a time
+        scope.launch {
+            delay(1000) // Wait for app to fully start
+            ensureSingleLauncher()
+        }
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
