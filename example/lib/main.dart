@@ -108,11 +108,74 @@ class _IconSwitcherPageState extends State<IconSwitcherPage> {
     try {
       await MasterfabricAppIcon.setIcon(iconName);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Icon changed to $iconName')),
+        SnackBar(
+          content: Text('Icon changed to $iconName'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ),
       );
+      // Refresh icon info after successful change
+      await _loadIconInfo();
     } catch (e) {
+      // Extract clean error message
+      String errorMessage;
+      if (e is AppIconException) {
+        errorMessage = e.message;
+      } else {
+        errorMessage = e.toString().replaceFirst(RegExp(r'^[^:]+:\s*'), '');
+      }
+      
+      final isSimulatorError = errorMessage.contains('iOS Simulator') || 
+                               errorMessage.contains('Simulator') ||
+                               errorMessage.contains('simulator');
+      
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to change icon: $e')),
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Failed to change icon',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                errorMessage,
+                style: const TextStyle(fontSize: 12),
+              ),
+              if (isSimulatorError) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.info_outline, size: 16, color: Colors.orange),
+                      SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          'This is a known iOS Simulator limitation. Test on a real device for full functionality.',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Dismiss',
+            textColor: Colors.white,
+            onPressed: () {},
+          ),
+        ),
       );
     }
   }

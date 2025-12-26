@@ -23,7 +23,26 @@ class AppIconMethodChannel {
       });
       return result;
     } on PlatformException catch (e) {
-      throw AppIconException('Failed to set icon: ${e.message}');
+      String errorMessage = e.message ?? e.code;
+      
+      // Extract retry count from details if available
+      final retryCount = e.details is Map 
+          ? (e.details as Map)['retryCount'] as int? 
+          : null;
+      
+      if (retryCount != null && retryCount > 0) {
+        errorMessage += ' (Retried $retryCount time${retryCount > 1 ? 's' : ''})';
+      }
+      
+      // Provide helpful context for common errors
+      if (errorMessage.contains('Resource temporarily unavailable') ||
+          errorMessage.contains('temporarily unavailable') ||
+          errorMessage.contains('iOS Simulator')) {
+        // The Swift code already includes helpful simulator messages
+        // Just pass it through
+      }
+      
+      throw AppIconException(errorMessage);
     }
   }
 
