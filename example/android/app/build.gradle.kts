@@ -30,6 +30,31 @@ android {
         versionName = flutter.versionName
     }
 
+    flavorDimensions += "environment"
+    
+    productFlavors {
+        create("dev") {
+            dimension = "environment"
+            applicationId = "com.example.example.dev"
+            versionNameSuffix = "-dev"
+            resValue("string", "app_name", "Example Dev")
+            manifestPlaceholders["appName"] = "Example Dev"
+            manifestPlaceholders["activityName"] = "com.example.example.MainActivity"
+            // Flavor-specific icon resources are in src/dev/res/
+            // Android automatically merges src/dev/res with src/main/res
+        }
+        
+        create("prod") {
+            dimension = "environment"
+            applicationId = "com.example.example"
+            resValue("string", "app_name", "Example")
+            manifestPlaceholders["appName"] = "Example"
+            manifestPlaceholders["activityName"] = "com.example.example.MainActivity"
+            // Flavor-specific icon resources are in src/prod/res/
+            // Android automatically merges src/prod/res with src/main/res
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
