@@ -93,15 +93,29 @@ class _IconSwitcherPageState extends State<IconSwitcherPage> {
   }
 
   Future<void> _loadIconInfo() async {
-    final isSupported = await MasterfabricAppIcon.isSupported();
-    final currentIcon = await MasterfabricAppIcon.getCurrentIcon();
-    final availableIcons = await MasterfabricAppIcon.getAvailableIcons();
+    try {
+      final isSupported = await MasterfabricAppIcon.isSupported();
+      final currentIcon = await MasterfabricAppIcon.getCurrentIcon();
+      final availableIcons = await MasterfabricAppIcon.getAvailableIcons();
 
-    setState(() {
-      _isSupported = isSupported;
-      _currentIcon = currentIcon;
-      _availableIcons = availableIcons;
-    });
+      debugPrint('Icon Info:');
+      debugPrint('  Supported: $isSupported');
+      debugPrint('  Current: $currentIcon');
+      debugPrint('  Available: $availableIcons');
+
+      setState(() {
+        _isSupported = isSupported;
+        _currentIcon = currentIcon;
+        _availableIcons = availableIcons;
+      });
+    } catch (e) {
+      debugPrint('Error loading icon info: $e');
+      setState(() {
+        _isSupported = false;
+        _currentIcon = 'Error';
+        _availableIcons = [];
+      });
+    }
   }
 
   Future<void> _setIcon(String iconName) async {
@@ -220,6 +234,16 @@ class _IconSwitcherPageState extends State<IconSwitcherPage> {
                       'Alternate Icons Supported: ${_isSupported ? 'Yes' : 'No'}',
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Available Icons Count: ${_availableIcons.length}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    if (_availableIcons.isNotEmpty)
+                      Text(
+                        'Icons: ${_availableIcons.join(", ")}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                   ],
                 ),
               ),
