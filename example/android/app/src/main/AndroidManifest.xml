@@ -34,6 +34,8 @@
             
             
             
+            
+            
             <!-- MASTERFABRIC_APP_ICON_ALIASES_START -->
         <activity-alias
             android:name=".MainActivityIcon1"
